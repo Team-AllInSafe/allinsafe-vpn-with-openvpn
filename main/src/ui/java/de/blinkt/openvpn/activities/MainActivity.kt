@@ -4,10 +4,14 @@
  */
 package de.blinkt.openvpn.activities
 
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import android.os.IBinder
 import android.util.Log
 import de.blinkt.openvpn.R
 import de.blinkt.openvpn.VpnProfile
@@ -15,19 +19,36 @@ import de.blinkt.openvpn.core.ConfigParser
 import de.blinkt.openvpn.core.IOpenVPNServiceInternal
 import de.blinkt.openvpn.core.OpenVPNService
 import de.blinkt.openvpn.core.ProfileManager
-import de.blinkt.openvpn.databinding.Ac301VpnInitMainBinding
 import de.blinkt.openvpn.databinding.MainActivityBinding
+import de.blinkt.openvpn.databinding.Ac301VpnInitMainBinding
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.util.UUID
 
 class MainActivity : BaseActivity() {
+//    lateinit var binding:MainActivityBinding
     lateinit var binding:Ac301VpnInitMainBinding
     private var mSelectedProfile: VpnProfile? = null
     private var mSelectedProfileReason: String? = null
     private var isError = 1
     private var isOk = 0
     private var START_VPN_PROFILE = 11 // 그냥 아무 숫자 넣음
+
+    private var vpnService: IOpenVPNServiceInternal? = null
+
+    private val vpnServiceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+            vpnService = IOpenVPNServiceInternal.Stub.asInterface(service)
+            // 이제 vpnService?.stopVPN(false) 등 호출 가능
+            Log.d("allinsafevpn", "VPN 서비스 연결됨")
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            vpnService = null
+            Log.d("allinsafevpn", "VPN 서비스 연결 끊김")
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         //기존 ui
@@ -60,19 +81,14 @@ class MainActivity : BaseActivity() {
 
             // profile 저장.
             // 과정은 de.blinkt.openvpn.activities.VPNPrefervence.addProfile 함수 참고
-            Log.d("allinsafevpn", "getInstance(내부에서 checkInstance) 전")
             val pm = ProfileManager.getInstance(applicationContext) //checkInstance 로 instant 초기화
-            Log.d("allinsafevpn", "getInstance(내부에서 checkInstance) 후")
+
             //profiles 해시맵 형태의 리스트? 같은 것에 추가
-            Log.d("allinsafevpn", "addprofile 전")
             pm.addProfile(profile)
-            Log.d("allinsafevpn", "addprofile 후")
-            
+
             // preference에 해시맵 저장. 원래 저장되어있던 옛날 버전 덮어쓰는 과정
-            Log.d("allinsafevpn", "saveProfileList 전")
             pm.saveProfileList(applicationContext)
-            Log.d("allinsafevpn", "saveProfileList 후")
-            
+
             // 새로 저장된 vpn 프로필을 파일로 만드는 것 같음.
             // 왜 하는진 잘 모르겠으나, 기존의 코드에서 이렇게 처리하길래 넣음. 결국에 연결까지는 잘 되니 된거아니겠음~ 25.06.07
             ProfileManager.saveProfile(applicationContext, profile)
@@ -89,19 +105,35 @@ class MainActivity : BaseActivity() {
                 mSelectedProfileReason = startReason
                 launchVPN()
             }
-
-             //실제 연결을 하는 Vpnprepare를 불러오는 LaunchVPN 로 intent
+            {//            실제 연결을 하는 Vpnprepare를 불러오는 LaunchVPN 로 intent
 //            val intent = Intent(applicationContext, LaunchVPN::class.java)
 //            intent.action = Intent.ACTION_MAIN
 //            intent.putExtra(LaunchVPN.EXTRA_KEY, reprofile.uuidString)
 //            startActivity(intent)
+            }
+
         }
 
         //기존의 vpnDisconnect 버튼
         binding.btnVpnStop.setOnClickListener {
-            //
-//            val mService = IOpenVPNServiceInternal.Stub.asInterface(service)
-//            ProfileManager.getInstance(applicationContext).stopVPN()
+
+            //연결 끊기
+//            이렇게 하면 disconnect,log 선택하는 창이 뜸
+//
+//            val intent = Intent(
+//                getActivity(this),
+//                DisconnectVPN::class.java
+//            )
+//            startActivity(intent)
+
+
+            //todo vpnService가 null 이란다 여기서부터 시작!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+            Log.d("allinsafevpn","disconnect btn onclick")
+            ProfileManager.setConntectedVpnProfileDisconnected(applicationContext)
+            Log.d("allinsafevpn",vpnService.toString())
+            vpnService?.stopVPN(false)
+            Log.d("allinsafevpn","stopvpn 실행됨")
         }
     }
 
@@ -143,6 +175,8 @@ class MainActivity : BaseActivity() {
                         applicationContext.startForegroundService(startVPN)
                     }else applicationContext.startService(startVPN)
                 }
+                val bindIntent = Intent(this, OpenVPNService::class.java)
+                bindService(bindIntent, vpnServiceConnection, Context.BIND_AUTO_CREATE)
             }
         } else if (resultCode == RESULT_CANCELED) {
             // User does not want us to start, so we just vanish
@@ -152,5 +186,6 @@ class MainActivity : BaseActivity() {
 //            )
         }
     }
+
 
 }
